@@ -29,6 +29,9 @@ drop of compute out of your NVIDIA GPU.
 * **Small footprint** - the live image is built from **nvidia/cuda:12.6.1-devel-ubuntu22.04**, weighs ~4.5 GB, and
   contains only runtime dependencies.
 
+* **OpenAI-compatible API** - standard `/v1/audio/transcriptions` and `/v1/audio/translations` endpoints for
+  easy integration with OpenAI SDKs and clients.
+
 ## Supported models
 
 * nvidia/canary-1b
@@ -79,11 +82,14 @@ docker compose up -d
 | CANARY_BATCH_SIZE  | 1                      | Batch size per request                |
 | CANARY_PNC         | yes                    | yes to keep punctuation + case        |
 | CANARY_TIMESTAMPTS | no                     | yes to request timestamps             |
+| CANARY_MODEL_PRECISION | fp32              | Model precision: fp32, fp16, or bf16  |
 | APP_BIND           | 0.0.0.0                | Container bind interface              |
 | APP_PORT           | 9000                   | Container port                        |
 | APP_WORKERS        | 1                      | Uvicorn worker processes              |
 
 ## HTTP API
+
+### Legacy Endpoint
 
 `POST /inference`
 
@@ -112,6 +118,119 @@ Successful JSON response:
   "text": "Guten Tag, hier spricht die KI."
 }
 ```
+
+### OpenAI-Compatible Endpoints
+
+Canary-Serve provides OpenAI-compatible endpoints for easy integration with existing OpenAI clients and SDKs.
+
+#### Transcription
+
+`POST /v1/audio/transcriptions`
+
+Transcribe audio in any supported language.
+
+* Content-Type: multipart/form-data
+* Form fields:
+    * `file` (required) - Audio file (mp3, mp4, mpeg, mpga, m4a, wav, webm), max 100MB
+    * `model` (required) - Model name (accepts "whisper-1" for compatibility)
+    * `response_format` (optional) - Output format: json, text, srt, vtt, verbose_json (default: json)
+    * `language` (optional) - Source language: en, de, fr, es (default: auto-detect)
+    * `temperature` (optional) - Accepted for OpenAI compatibility but ignored
+    * `beam_size` (optional) - Beam size for decoding (default: 1)
+
+**Example**
+
+```shell
+curl http://localhost:9000/v1/audio/transcriptions \
+  -F file=@sample.mp3 \
+  -F model=whisper-1 \
+  -F language=de
+```
+
+**Response**
+
+```json
+{
+  "text": "Guten Tag, hier spricht die KI."
+}
+```
+
+#### Translation
+
+`POST /v1/audio/translations`
+
+Transcribe and translate audio to a target language.
+
+* Content-Type: multipart/form-data
+* Form fields:
+    * `file` (required) - Audio file (mp3, mp4, mpeg, mpga, m4a, wav, webm), max 100MB
+    * `model` (required) - Model name (accepts "whisper-1" for compatibility)
+    * `response_format` (optional) - Output format: json, text, srt, vtt, verbose_json (default: json)
+    * `temperature` (optional) - Accepted for OpenAI compatibility but ignored
+    * `beam_size` (optional) - Beam size for decoding (default: 1)
+    * `target_lang` (optional) - Target language for translation: bg, hr, cs, da, nl, en, et, fi, fr, de, el, hu, it, lv, lt, mt, pl, pt, ro, sk, sl, es, sv, ru, uk (default: en)
+
+**Example - Translate to English (default)**
+
+```shell
+curl http://localhost:9000/v1/audio/translations \
+  -F file=@german_sample.mp3 \
+  -F model=whisper-1
+```
+
+**Example - Translate to Spanish**
+
+```shell
+curl http://localhost:9000/v1/audio/translations \
+  -F file=@german_sample.mp3 \
+  -F model=whisper-1 \
+  -F target_lang=es
+```
+
+**Response**
+
+```json
+{
+  "text": "Good day, this is the AI speaking."
+}
+```
+
+#### Streaming
+
+`POST /v1/audio/transcriptions` with `stream=true`
+
+Stream transcription results as Server-Sent Events (SSE).
+
+* Content-Type: multipart/form-data
+* Form fields:
+    * `file` (required) - Audio file (mp3, mp4, mpeg, mpga, m4a, wav, webm), max 100MB
+    * `model` (required) - Model name (accepts "whisper-1" for compatibility)
+    * `stream` (required) - Set to `true` to enable streaming
+    * `language` (optional) - Source language: en, de, fr, es (default: auto-detect)
+    * `temperature` (optional) - Accepted for OpenAI compatibility but ignored
+    * `beam_size` (optional) - Beam size for decoding (default: 1)
+
+**Example**
+
+```shell
+curl http://localhost:9000/v1/audio/transcriptions \
+  -F file=@sample.wav \
+  -F model=whisper-1 \
+  -F language=en \
+  -F stream=true
+```
+
+**Response** (SSE format)
+
+```
+data: {"type": "transcript.text.delta", "delta": "Hello "}
+
+data: {"type": "transcript.text.delta", "delta": "world "}
+
+data: {"type": "transcript.text.done", "text": "Hello world"}
+```
+
+Long audio files are automatically split into chunks and streamed as results become available.
 
 ## License
 
